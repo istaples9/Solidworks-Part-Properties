@@ -1,0 +1,187 @@
+Dim swApp As SldWorks.SldWorks
+Dim swModel As SldWorks.ModelDoc2
+Dim swFeature As SldWorks.Feature
+Dim featureName As String, featureType As String
+Dim swModelDocExt As SldWorks.ModelDocExtension
+Dim swSelMgr As SldWorks.SelectionMgr
+Dim config As SldWorks.Configuration
+Dim swCutListPropMgr As SldWorks.CustomPropertyManager
+Dim swCustPropMgr As SldWorks.CustomPropertyManager
+
+Sub Main()
+    
+    Set swApp = Application.SldWorks
+    Set swModel = swApp.ActiveDoc
+    
+    'rebuilds then unsuppresses the bounding box
+    swModel.EditRebuild3
+    UnsuppressBB
+    
+    Dim cutListTotal As Integer
+    
+    'runs replace part props function which returns # of cut list feature folders
+    cutListTotal = ReplacePartProps
+    
+    'inserts cutlist only if there are none found in model, then reruns replace part props function
+    If cutListTotal = 0 Then
+        InsertCutList
+        ReplacePartProps
+    End If
+    
+    'rebuilds then suppresses the bounding box
+    swModel.EditRebuild3
+    SuppressBB
+    
+End Sub
+
+'replaces custom part properties if cut list exists, returns cut list count regardless
+Function ReplacePartProps()
+    Dim names As Variant
+    Dim name As Variant
+    Dim textexp As String
+    Dim evalval As String
+
+    Dim cutListCount As Integer
+
+    Set swApp = Application.SldWorks
+    Set swModel = swApp.ActiveDoc
+    Set swFeature = swModel.FirstFeature
+    
+    Set config = swModel.GetActiveConfiguration
+    Set swCustPropMgr = config.CustomPropertyManager
+    
+    cutListCount = 0
+    
+    'loops through solidworks feature manager tree
+    Do While Not swFeature Is Nothing
+        
+        'if cut list folder is found, stops loop and gets its properties
+        If swFeature.GetTypeName2 = "CutListFolder" Then
+            Set swCutListPropMgr = swFeature.CustomPropertyManager
+            
+            cutListCount = cutListCount + 1
+            Debug.Print cutListCount
+            
+            'gets cutlist properties
+            names = swCutListPropMgr.GetNames
+            For Each name In names
+                swCutListPropMgr.Get2 name, textexp, evalval
+                Debug.Print name, textexp, evalval, swCutListPropMgr.GetType(name)
+                
+                Select Case name
+                    Case Is = "Bounding Box Length"
+                        cutLength = evalval
+                    Case Is = "Bounding Box Width"
+                        cutWidth = evalval
+                    Case Is = "Sheet Metal Thickness"
+                        cutThick = evalval
+                End Select
+            
+            Next name
+        
+        'deletes stock size custom property
+        swCustPropMgr.Delete2 "STOCK LXWXT"
+        'adds new stock size custom property pulled from cut list
+        swCustPropMgr.Add2 "STOCK LXWXT", swCustomInfoType_e.swCustomInfoText, cutLength + " X " + cutWidth + " X " + cutThick
+        MsgBox "Custom Properites Replaced"
+        
+        End If
+
+        ' Get the next feature in the FeatureManager design tree
+        Set swFeature = swFeature.GetNextFeature
+
+    Loop
+    'returns cut list count #
+    ReplacePartProps = cutListCount
+End Function
+
+Function InsertCutList()
+    Dim obj() As Object
+    Dim v As Variant
+    Dim PartName As String
+    
+    Set swApp = Application.SldWorks
+    Set swModel = swApp.ActiveDoc
+    
+    Set config = swModel.GetActiveConfiguration
+    Set swCustPropMgr = config.CustomPropertyManager
+    
+    'checks if model is sheet metal
+    If swModel.GetBendState <> 0 Then
+    
+        v = swModel.GetBodies2(0, True)
+        Dim cutListFeature As Feature
+        Set cutListFeature = swModel.FeatureManager.InsertWeldmentCutList2(v)
+        
+    Else
+        
+        'deletes stock size custom property
+        swCustPropMgr.Delete2 "STOCK LXWXT"
+        'adds new stock size custom property pulled from bounding box
+        swCustPropMgr.Add2 "STOCK LXWXT", swCustomInfoType_e.swCustomInfoText, "$PRP:" + """" + "Total Bounding Box Length" + """" + "X" + "$PRP:" + """" + "Total Bounding Box Width" + """" + "X" + "$PRP:" + """" + "Total Bounding Box Thickness" + """"
+        MsgBox "Custom Properties Updated"
+          
+    End If
+End Function
+
+Function UnsuppressBB()
+
+    Set swApp = Application.SldWorks
+    Set swModel = swApp.ActiveDoc
+    
+    Set swSelMgr = swModel.SelectionManager
+    Set swModelDocExt = swModel.Extension
+
+    ' Get the first feature in part
+    Set swFeature = swModel.FirstFeature
+
+    ' While we have a valid feature
+    While Not swFeature Is Nothing
+
+     ' Get the name of the feature
+     featureName = swFeature.name
+     featureName = swFeature.GetNameForSelection(featureType)
+     
+     If featureName = "Bounding Box" Then
+        swModelDocExt.SelectByID2 featureName, featureType, 0, 0, 0, True, 0, Nothing, 0
+        swModel.EditUnsuppress2
+        
+     End If
+     ' Get the next feature
+     Set swFeature = swFeature.GetNextFeature()
+
+    ' Continue until the last feature is found
+    Wend
+
+End Function
+
+Function SuppressBB()
+
+    Set swApp = Application.SldWorks
+    Set swModel = swApp.ActiveDoc
+    
+    Set swSelMgr = swModel.SelectionManager
+    Set swModelDocExt = swModel.Extension
+
+    ' Get the first feature in part
+    Set swFeature = swModel.FirstFeature
+
+    ' While we have a valid feature
+    While Not swFeature Is Nothing
+
+     ' Get the name of the feature
+     featureName = swFeature.name
+     featureName = swFeature.GetNameForSelection(featureType)
+     
+     If featureName = "Bounding Box" Then
+        swModelDocExt.SelectByID2 featureName, featureType, 0, 0, 0, True, 0, Nothing, 0
+        swModel.EditSuppress2
+     End If
+     ' Get the next feature
+     Set swFeature = swFeature.GetNextFeature()
+
+    ' Continue until the last feature is found
+    Wend
+
+End Function
+
